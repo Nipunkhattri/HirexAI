@@ -10,8 +10,9 @@ import os
 from database.mongodb import users_collection , resume_collection , user_responses
 from middleware.middleware import verify_token
 from bson import ObjectId
-from models.domain import SubmitAnswer 
+from models.domain import SubmitAnswer
 import uuid
+import datetime
 
 resume_router = APIRouter(prefix="/api/v1/resume", tags=["Resume Domain Creation"])
 
@@ -75,6 +76,7 @@ async def Generate_Questions(request: SkillsRequest,user_id: str = Depends(verif
         - Include a mix of basic and advanced concepts
         - Focus on practical applications
         - Be clear and concise
+        - The questions should be in theory or approach based not any code related to it.
         Please provide only the questions without answers."""
 
         response = client.chat.completions.create(
@@ -93,13 +95,15 @@ async def Generate_Questions(request: SkillsRequest,user_id: str = Depends(verif
 
         questions = questions[:2]
 
-        # Check if document already exists for this user and resume
+        # Use upsert instead of find_one and insert_one
         existing_doc = await user_responses.find_one({
             "user_id": user_id,
             "resume_id": request.resume_id
         })
+
+        print("existing_doc",existing_doc)
         
-        if not existing_doc:
+        if existing_doc is None:
             # Insert new document if it doesn't exist
             await user_responses.insert_one({
             "user_id": user_id,
@@ -241,25 +245,42 @@ async def get_analysis(resume_id: str, domain_name: str, user_id: str = Depends(
         print(all_responses)
 
         overall_prompt = f"""
-        Analyze these technical interview responses for {domain_name} domain:
+        You are an expert technical interviewer for the {domain_name} domain. Your task is to analyze and evaluate a series of technical interview responses provided by a candidate.
+
+        You will receive a list of questions and the corresponding answers in JSON format:
         {all_responses}
 
-        Return a valid JSON object in this exact structure:
+        ### Evaluation Criteria:
+        - **Relevance**: Does the answer directly address the question asked?
+        - **Completeness**: Does it provide sufficient technical and contextual detail?
+        - **Clarity**: Is the explanation clear and easy to understand?
+        - **Accuracy**: Are the technical concepts and implementations described correctly?
+
+        Based on the evaluation, provide a comprehensive assessment of the candidate’s performance. Your response should include:
+
+        - **Overall Score**: An overall evaluation of the candidate’s performance.
+        - **Technical Skills Score**: How well the candidate demonstrated technical expertise.
+        - **Problem Solving Score**: How well the candidate approached and solved technical problems.
+        - **Skill Breakdown**: A breakdown of specific skills demonstrated based on the questions (e.g., React, Node.js, Algorithms, SQL, etc.), each rated out of 100.
+
+        ### Output Format:
+        Return a valid JSON object in **this exact structure**:
         {{
-            "Overall_Score": <integer>,
-            "Technical_Skills_Score": <integer>,
-            "Problem_Solving_Score": <integer>,
+            "Overall_Score": <integer from 0 to 100>,
+            "Technical_Skills_Score": <integer from 0 to 100>,
+            "Problem_Solving_Score": <integer from 0 to 100>,
             "skillBreakdown": [
                 {{
-                    "name": "<Gave the Skill name based on the question . It can be like React, Node etc>",
-                    "value": <integer out of 100>
-                }}
+                    "name": "<Skill Name>",
+                    "value": <integer from 0 to 100>
+                }},
+                ...
             ]
         }}
         """
 
         overall_response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4o",
             messages=[{"role": "system", "content": overall_prompt}],
             temperature=0.7
         )
@@ -281,12 +302,14 @@ async def get_analysis(resume_id: str, domain_name: str, user_id: str = Depends(
         for qa in domain_responses:
             question = qa["question"]
             user_response = qa["transcript"]
-            prompt = f"""Analyze this technical interview response and provide an improved answer:
+            prompt = f"""
+            You will get the question and answer which user submitted in the interview.
+            You have to Analyze the user answer using the user response and provide an improved answer:
             Question: {question}
             User Response: {user_response}
-            Provide a detailed, technically accurate improved answer that covers all important aspects."""
+            Provide a detailed, technically accurate improved answer that covers all important aspects and in short"""
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[{"role": "system", "content": prompt}],
                 temperature=0.7
             )
@@ -312,7 +335,9 @@ async def get_analysis(resume_id: str, domain_name: str, user_id: str = Depends(
                 "technicalSkillsScore": scores_dict.get("Technical_Skills_Score", 0),
                 "problemSolvingScore": scores_dict.get("Problem_Solving_Score", 0),
                 "skillBreakdown": scores_dict.get("skillBreakdown", []),
-                "domainAnalysis": analysis_result
+                "domainAnalysis": analysis_result,
+                "date": str(datetime.datetime.now()),
+                "time": str(datetime.datetime.now().time())
             }
             }}
         )
@@ -337,7 +362,7 @@ async def get_domain_analysis(resume_id: str, domain_name: str, user_id: str = D
         # Find the user response document
         user_doc = await user_responses.find_one({
             "user_id": user_id,
-            "resume_id": resume_id
+            "resume_id": resume_id,
         })
         
         if not user_doc or "analysis" not in user_doc:
@@ -358,4 +383,46 @@ async def get_domain_analysis(resume_id: str, domain_name: str, user_id: str = D
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving analysis: {str(e)}"
+        )
+
+
+@resume_router.get("/InterviewHistory",status_code=status.HTTP_200_OK)
+async def get_interview_history(user_id: str = Depends(verify_token)):
+    """
+    Get the interview history of the user to buil a chart
+    """
+    try:
+        user_doc = await user_responses.find_one({"user_id": user_id})
+        print(len(user_doc))
+
+        if not user_doc.get('analysis'):
+            raise HTTPException(status_code=404, detail="No analysis data found")
+
+        print(user_doc)
+
+        history = []
+        for domain_name, domain in user_doc['analysis'].items():
+            history.append({
+            'overallScore': domain.get('overallScore', 0),
+            'date': domain.get('date'),
+            'time': domain.get('time'),
+            'domain_name': domain_name,
+            })
+
+        # Sort by date and time in descending order (latest first)
+        history.sort(key=lambda x: (x['date'], x['time']), reverse=True)
+
+        print(history)
+
+        if not user_doc:
+            raise HTTPException(status_code=404, detail="No interview history found")
+        
+        return JSONResponse({
+            "success": True,
+            "interview_history": history
+        })
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving interview history: {str(e)}"
         )
