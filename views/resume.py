@@ -280,7 +280,7 @@ async def get_analysis(resume_id: str, domain_name: str, user_id: str = Depends(
         """
 
         overall_response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o-mini",
             messages=[{"role": "system", "content": overall_prompt}],
             temperature=0.7
         )
@@ -309,7 +309,7 @@ async def get_analysis(resume_id: str, domain_name: str, user_id: str = Depends(
             User Response: {user_response}
             Provide a detailed, technically accurate improved answer that covers all important aspects and in short"""
             response = client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o-mini",
                 messages=[{"role": "system", "content": prompt}],
                 temperature=0.7
             )
@@ -387,13 +387,15 @@ async def get_domain_analysis(resume_id: str, domain_name: str, user_id: str = D
 
 
 @resume_router.get("/InterviewHistory",status_code=status.HTTP_200_OK)
-async def get_interview_history(user_id: str = Depends(verify_token)):
+async def get_interview_history(resume_id: str,user_id: str = Depends(verify_token)):
     """
     Get the interview history of the user to buil a chart
     """
     try:
-        user_doc = await user_responses.find_one({"user_id": user_id})
-        print(len(user_doc))
+        user_doc = await user_responses.find_one({
+            "user_id": user_id,
+            "resume_id": resume_id,
+        })
 
         if not user_doc.get('analysis'):
             raise HTTPException(status_code=404, detail="No analysis data found")
@@ -407,6 +409,7 @@ async def get_interview_history(user_id: str = Depends(verify_token)):
             'date': domain.get('date'),
             'time': domain.get('time'),
             'domain_name': domain_name,
+            'detected': domain.get('detected', 'not detected')
             })
 
         # Sort by date and time in descending order (latest first)
@@ -425,4 +428,67 @@ async def get_interview_history(user_id: str = Depends(verify_token)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving interview history: {str(e)}"
+        )
+    
+@resume_router.get("/detected_cheating",status_code=status.HTTP_200_OK)
+async def get_detected_cheating(resume_id: str, domain_name: str, user_id: str = Depends(verify_token)):
+    """
+    Get the detected cheating of the user
+    """
+    try:
+        user_doc = await user_responses.find_one({
+            "user_id": user_id,
+            "resume_id": resume_id,
+        })
+        if not user_doc:
+            raise HTTPException(status_code=404, detail="No user document found")
+            
+        print(user_doc.get('analysis', {}))
+
+        if 'analysis' in user_doc:
+            if domain_name in user_doc['analysis']:
+                # Update existing domain with score=0 and current date
+                await user_responses.update_one(
+                    {"user_id": user_id, "resume_id": resume_id},
+                    {"$set": {
+                        f"analysis.{domain_name}.overallScore": 0,
+                        f"analysis.{domain_name}.date": str(datetime.datetime.now()),
+                        f"analysis.{domain_name}.detected": "cheating"
+                    }}
+                )
+            else:
+                # Create new domain analysis with cheating detected
+                await user_responses.update_one(
+                    {"user_id": user_id, "resume_id": resume_id},
+                    {"$set": {
+                    f"analysis.{domain_name}": {
+                        "overallScore": 0,
+                        "date": str(datetime.datetime.now()),
+                        "detected": "cheating"
+                    }
+                    }}
+                )
+        else:
+            # Create new analysis object with domain and cheating detected
+            await user_responses.update_one(
+            {"user_id": user_id, "resume_id": resume_id},
+            {"$set": {
+                "analysis": {
+                domain_name: {
+                    "overallScore": 0,
+                    "date": str(datetime.datetime.now()),
+                    "detected": "cheating"
+                }
+                }
+            }}
+            )
+
+        return JSONResponse({
+            "success": True,
+            "message": "Cheating detected and recorded successfully"
+        })
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving detected cheating: {str(e)}"
         )
