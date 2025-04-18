@@ -8,26 +8,43 @@ class DomainExtractor:
     
     def extract_domains(self, resume_text):
         prompt = f"""
-            You are a expert in getting the domains from the user resume.
-            Resume Text : {resume_text}
-            You have to classify the domains in which the user are having skills.
-            And you have to return a json response of that.
-            Here is a example how it will look like             
-            {{
-                "domain1": {{
-                    "skills": ["skill1", "skill2", "skill3"]
-                }},
-                "domain2": {{
-                    "skills": ["skill1", "skill2", "skill3"]
-                }},
-                "domain3": {{
-                    "skills": ["skill1", "skill2", "skill3"]
-                }}
-            }}
-            The Output should be in JSON format.
-            All the domains and inside there skills should be different.
-            Skills must be returned as an array of strings, not as a comma-separated string.
-            I want only the json reponse nothing else.
+        You are an expert in resume parsing for technical interviews.
+
+        Given a resume text, extract and classify the user’s skills into high-level, interview-relevant technical domains only — these should be the domains you'd conduct an in-depth technical interview on.
+
+        The resume text is as follows:
+        {resume_text}
+
+        Guidelines:
+        - Do NOT include support categories such as "Version Control", "Tools", "API Development", or "Technologies".
+        - DO include only meaningful technical domains such as:
+        - Backend Development
+        - Frontend Development
+        - AI/ML or Generative AI
+        - Android Development
+        - Cloud Computing
+        - DevOps
+        - Cybersecurity
+        - Data Engineering
+        - Web Development
+        - Embedded Systems
+        - etc.
+
+        These domains should reflect actual areas you'd prepare interview questions for.
+
+        Each domain must include an array of unique, contextually relevant skills extracted from the resume. A skill should only appear under the domain it contributes most strongly to.
+
+        Format:
+        {{
+        "domain1": {{
+            "skills": ["skill1", "skill2", "skill3"]
+        }},
+        "domain2": {{
+            "skills": ["skill1", "skill2", "skill3"]
+        }}
+        }}
+
+        Output only the JSON. Do not include vague or overly granular domains like "Version Control", "Tools", or "API Development".
         """
         response = self.llm.complete(prompt).text.strip()
         print(response)

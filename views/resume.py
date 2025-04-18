@@ -13,6 +13,7 @@ from bson import ObjectId
 from models.domain import SubmitAnswer
 import uuid
 import datetime
+import json
 
 resume_router = APIRouter(prefix="/api/v1/resume", tags=["Resume Domain Creation"])
 
@@ -70,14 +71,32 @@ async def Generate_Questions(request: SkillsRequest,user_id: str = Depends(verif
         skills_str = ", ".join(request.skills)
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
-        prompt = f"""Generate 2 technical interview questions for a candidate with the following skills: {skills_str}.
-        The questions should:
-        - Be specific to the mentioned skills
-        - Include a mix of basic and advanced concepts
-        - Focus on practical applications
-        - Be clear and concise
-        - The questions should be in theory or approach based not any code related to it.
-        Please provide only the questions without answers."""
+        prompt = f"""You are an expert technical interviewer. Your task is to generate two unique technical interview questions based on the given domain and relevant skill set. The questions should meet the following criteria:
+        Be clear, concise, and diverse each time the prompt is run.
+
+        Cover one basic and one advanced concept within the domain.
+
+        The questions should focus on theory or approach, not coding or syntax.
+
+        Use the domain and the skills array as a guide to tailor the questions.
+
+        Ensure the questions are not repeated across multiple runs by introducing creative variations in phrasing and focus.
+
+        Input:
+
+        domain: {request.DomainName}
+        skills: {skills_str}
+
+        Output:
+        Provide a valid JSON object in this exact structure:
+        {{
+            "questions": [
+                "<Question 1>",
+                "<Question 2>"
+            ],
+            "DomainName": "{request.DomainName}"
+        }}
+        """
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -89,34 +108,37 @@ async def Generate_Questions(request: SkillsRequest,user_id: str = Depends(verif
             max_tokens=1000
         )
 
-        raw_questions = response.choices[0].message.content.strip().split('\n')
+        raw_json = response.choices[0].message.content.strip()
+        parsed_output = json.loads(raw_json)
 
-        questions = [q.strip().lstrip('0123456789. ') for q in raw_questions if q.strip()]
+        # Defensive check
+        if "questions" not in parsed_output or len(parsed_output["questions"]) != 2:
+            raise ValueError("Invalid response format from OpenAI.")
 
-        questions = questions[:2]
-
-        # Use upsert instead of find_one and insert_one
+        # Upsert to DB
         existing_doc = await user_responses.find_one({
             "user_id": user_id,
             "resume_id": request.resume_id
         })
 
-        print("existing_doc",existing_doc)
-        
         if existing_doc is None:
-            # Insert new document if it doesn't exist
             await user_responses.insert_one({
-            "user_id": user_id,
-            "resume_id": request.resume_id,
-            "responses": {}  # Initialize empty responses object
+                "user_id": user_id,
+                "resume_id": request.resume_id,
+                "responses": {}
             })
 
-        return QuestionsResponse(questions=questions,DomainName=request.DomainName)
+        return QuestionsResponse(
+            questions=parsed_output["questions"],
+            DomainName=parsed_output["DomainName"]
+        )
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error processing resume: {str(e)}"
+            detail=f"Error generating questions: {str(e)}"
         )
+
         
 @resume_router.post('/record_answer',
                     status_code=status.HTTP_200_OK)
@@ -245,23 +267,22 @@ async def get_analysis(resume_id: str, domain_name: str, user_id: str = Depends(
         print(all_responses)
 
         overall_prompt = f"""
-        You are an expert technical interviewer for the {domain_name} domain. Your task is to analyze and evaluate a series of technical interview responses provided by a candidate.
+        You are an AI interview evaluator assessing technical interview answers for a specific domain.
 
-        You will receive a list of questions and the corresponding answers in JSON format:
-        {all_responses}
+        You are given:
+        1. A {domain_name} domain 
+        2. A {all_responses} that contains a list of questions and the corresponding answers submitted by a user during an interview.
 
-        ### Evaluation Criteria:
-        - **Relevance**: Does the answer directly address the question asked?
-        - **Completeness**: Does it provide sufficient technical and contextual detail?
-        - **Clarity**: Is the explanation clear and easy to understand?
-        - **Accuracy**: Are the technical concepts and implementations described correctly?
-
-        Based on the evaluation, provide a comprehensive assessment of the candidate’s performance. Your response should include:
-
-        - **Overall Score**: An overall evaluation of the candidate’s performance.
-        - **Technical Skills Score**: How well the candidate demonstrated technical expertise.
-        - **Problem Solving Score**: How well the candidate approached and solved technical problems.
-        - **Skill Breakdown**: A breakdown of specific skills demonstrated based on the questions (e.g., React, Node.js, Algorithms, SQL, etc.), each rated out of 100.
+        Your task is to:
+        - Analyze each answer to determine:
+        - How **technically correct** it is.
+        - How **relevant and clear** the explanation is.
+        - How much the answer shows the candidate’s **depth of understanding** of the concept.
+        - Based on this, calculate:
+        - **Overall Score** (0 to 100): Reflects the user's total performance.
+        - **Technical Skills Score** (0 to 100): Accuracy and correctness of technical knowledge.
+        - **Problem Solving Score** (0 to 100): Understanding of problem-solving approaches, algorithms, efficiency, and code structuring.
+        - **Skill Breakdown**: Extract key skills mentioned or implied in the answers and rate the user's proficiency (0 to 100) in each.
 
         ### Output Format:
         Return a valid JSON object in **this exact structure**:
@@ -277,6 +298,8 @@ async def get_analysis(resume_id: str, domain_name: str, user_id: str = Depends(
                 ...
             ]
         }}
+
+        Be fair and precise. Base your analysis only on what is provided in the answers. Do not assume extra knowledge unless explicitly demonstrated.
         """
 
         overall_response = client.chat.completions.create(
@@ -392,32 +415,33 @@ async def get_interview_history(resume_id: str,user_id: str = Depends(verify_tok
     Get the interview history of the user to buil a chart
     """
     try:
-        user_doc = await user_responses.find_one({
+        user_docs = await user_responses.find({
             "user_id": user_id,
-            "resume_id": resume_id,
-        })
+        }).to_list(length=None)
 
-        if not user_doc.get('analysis'):
+        print(user_docs)
+
+        if not user_docs:
             raise HTTPException(status_code=404, detail="No analysis data found")
 
-        print(user_doc)
-
         history = []
-        for domain_name, domain in user_doc['analysis'].items():
-            history.append({
-            'overallScore': domain.get('overallScore', 0),
-            'date': domain.get('date'),
-            'time': domain.get('time'),
-            'domain_name': domain_name,
-            'detected': domain.get('detected', 'not detected')
-            })
+        for doc in user_docs:
+            if doc.get('analysis'):
+                for domain_name, domain in doc['analysis'].items():
+                    history.append({
+                    'overallScore': domain.get('overallScore', 0),
+                    'date': domain.get('date'),
+                    'time': domain.get('time'),
+                    'domain_name': domain_name,
+                    'detected': domain.get('detected', 'not detected')
+                    })
 
-        # Sort by date and time in descending order (latest first)
+        # Sort by date and time in descending order (latest first)  
         history.sort(key=lambda x: (x['date'], x['time']), reverse=True)
 
         print(history)
 
-        if not user_doc:
+        if not user_docs:
             raise HTTPException(status_code=404, detail="No interview history found")
         
         return JSONResponse({
@@ -491,4 +515,32 @@ async def get_detected_cheating(resume_id: str, domain_name: str, user_id: str =
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving detected cheating: {str(e)}"
+        )
+    
+@resume_router.get("/get_all_interviews", status_code=status.HTTP_200_OK)
+async def get_all_interviews(user_id: str = Depends(verify_token)):
+    """
+    Get all interviews with their domains for a user
+    """
+    try:
+        user_docs = await user_responses.find({"user_id": user_id}).to_list(length=None)
+        
+        result = []
+        for doc in user_docs:
+            if 'analysis' in doc and doc.get('resume_id'):
+                for domain_name in doc['analysis'].keys():
+                    result.append({
+                        "resume_id": doc['resume_id'],
+                        "domain_name": domain_name
+                    })
+
+        return JSONResponse({
+            "success": True,
+            "interviews": result
+        })
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving interviews: {str(e)}"
         )

@@ -46,9 +46,10 @@ async def login(login:LoginSchema):
     expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
         "sub": str(user["_id"]),
-        "email":str(login.email),
+        "email": str(login.email),
         "exp": expire
     }
+
     token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
     return {"access_token": token, "token_type": "bearer"}
 
