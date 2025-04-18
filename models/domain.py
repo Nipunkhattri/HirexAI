@@ -19,6 +19,7 @@ class QuestionsResponse(BaseModel):
     questions: List[str]
     
 class SubmitAnswer(BaseModel):
+    section_id: str
     question:str
     answer_text:str
     DomainName: str

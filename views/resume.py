@@ -12,7 +12,7 @@ from middleware.middleware import verify_token
 from bson import ObjectId
 from models.domain import SubmitAnswer
 import uuid
-import datetime
+from datetime import datetime
 import json
 
 resume_router = APIRouter(prefix="/api/v1/resume", tags=["Resume Domain Creation"])
@@ -159,12 +159,11 @@ async def Record_Answer(
 
     return JSONResponse({"success": "text saved successfully", "transcript": transcript})
 
-@resume_router.post('/submit_answer',
-                    status_code=status.HTTP_200_OK)
+@resume_router.post('/submit_answer', status_code=status.HTTP_200_OK)
 async def submit_answer(
     answer: SubmitAnswer,
     user_id: str = Depends(verify_token)
-    ):
+):
     """
     Record the answer (text) submitted for a question.
     """
@@ -172,70 +171,68 @@ async def submit_answer(
     print(f"Domain: {answer.DomainName}")
     print(f"Question: {answer.question}")
     print(f"Answer: {answer.answer_text}")
+
     user_doc = await user_responses.find_one({
         "user_id": user_id,
         "resume_id": answer.resume_id
     })
 
-    print(user_doc)
-    
     if user_doc and "responses" in user_doc:
-        # If responses object exists, update or add to domain array
-        # Check if domain exists in responses
-        domain_exists = await user_responses.find_one({
+        updated = False
+
+        # Go through each object in 'responses'
+        for obj in user_doc["responses"]:
+            if obj.get("id") == answer.section_id:
+                obj["data"].append({
+                    "question": answer.question,
+                    "answer": answer.answer_text
+                })
+                updated = True
+                break
+
+        if not updated:
+            # If section_id not found, append a new response object
+            user_doc["responses"].append({
+                "id": answer.section_id,
+                "domain": answer.DomainName,
+                "data": [
+                    {
+                        "question": answer.question,
+                        "answer": answer.answer_text
+                    }
+                ]
+            })
+
+        # Save the updated document
+        await user_responses.update_one(
+            {"_id": user_doc["_id"]},
+            {"$set": {"responses": user_doc["responses"]}}
+        )
+
+    else:
+        # If no document exists, create one
+        new_doc = {
             "user_id": user_id,
             "resume_id": answer.resume_id,
-            f"responses.{answer.DomainName}": {"$exists": True}
-        })
+            "responses": [
+                {
+                    "id": answer.section_id,
+                    "domain": answer.DomainName,
+                    "data": [
+                        {
+                            "question": answer.question,
+                            "answer": answer.answer_text
+                        }
+                    ]
+                }
+            ]
+        }
+        await user_responses.insert_one(new_doc)
 
-        if domain_exists:
-            # If domain exists, push to its array
-            await user_responses.update_one(
-            {
-                "user_id": user_id,
-                "resume_id": answer.resume_id
-            },
-            {"$push": {
-                f"responses.{answer.DomainName}": {
-                "question": answer.question,
-                "transcript": answer.answer_text
-                }
-            }}
-            )
-        else:
-            # If domain doesn't exist, set it with first answer
-            await user_responses.update_one(
-            {
-                "user_id": user_id,
-                "resume_id": answer.resume_id
-            },
-            {"$set": {
-                f"responses.{answer.DomainName}": [{
-                "question": answer.question,
-                "transcript": answer.answer_text
-                }]
-            }}
-            )
-    else:
-        # If responses object doesn't exist, create it with first domain and answer
-        await user_responses.update_one(
-            {
-                "user_id": user_id,
-                "resume_id": answer.resume_id
-            },
-            {"$set": {
-                "responses": {
-                    f"{answer.DomainName}": [{
-                        "question": answer.question,
-                        "transcript": answer.answer_text
-                    }]
-                }
-            }}
-        )
     return JSONResponse({"success": "Answer saved successfully"})
 
 @resume_router.get('/analysis', status_code=status.HTTP_200_OK)
-async def get_analysis(resume_id: str, domain_name: str, user_id: str = Depends(verify_token)):
+async def get_analysis(section_id: str, resume_id: str, domain_name: str, user_id: str = Depends(verify_token)):
     """
     Get the analysis of the user responses for a specific domain including scores and improved answers
     """
@@ -252,26 +249,23 @@ async def get_analysis(resume_id: str, domain_name: str, user_id: str = Depends(
             
         responses = user_doc["responses"]
         
-        if domain_name not in responses:
-            raise HTTPException(status_code=404, detail=f"No responses found for domain: {domain_name}")
-            
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        analysis_result = {}
 
-        # Only get responses for the specified domain
-        domain_responses = responses[domain_name]
-        all_responses = []
-        for qa in domain_responses:
-            all_responses.append({"question": qa['question'], "transcript": qa["transcript"]})
+        matched_section = next((section for section in responses if section.get("id") == section_id), None)
 
-        print(all_responses)
+        if not matched_section:
+            raise HTTPException(status_code=404, detail="Section not found")
+        
+        domain_responses = matched_section.get("data", [])
+
+        print(f"Domain Response: {domain_responses}")
 
         overall_prompt = f"""
         You are an AI interview evaluator assessing technical interview answers for a specific domain.
 
         You are given:
         1. A {domain_name} domain 
-        2. A {all_responses} that contains a list of questions and the corresponding answers submitted by a user during an interview.
+        2. A {domain_responses} that contains a list of questions and the corresponding answers submitted by a user during an interview.
 
         Your task is to:
         - Analyze each answer to determine:
@@ -324,7 +318,7 @@ async def get_analysis(resume_id: str, domain_name: str, user_id: str = Depends(
         domain_questions = []
         for qa in domain_responses:
             question = qa["question"]
-            user_response = qa["transcript"]
+            user_response = qa["answer"]
             prompt = f"""
             You will get the question and answer which user submitted in the interview.
             You have to Analyze the user answer using the user response and provide an improved answer:
@@ -342,27 +336,25 @@ async def get_analysis(resume_id: str, domain_name: str, user_id: str = Depends(
                 "userResponse": user_response,
                 "improvedAnswer": improved_answer
             })
-        analysis_result[domain_name] = domain_questions
 
+        result_object = {
+            "section_id": section_id,
+            "domain_name": domain_name,
+            "name": user.get("name", ""),
+            "email": user.get("email", ""),
+            "overallScore": scores_dict["Overall_Score"],
+            "technicalSkillsScore": scores_dict["Technical_Skills_Score"], 
+            "problemSolvingScore": scores_dict["Problem_Solving_Score"],
+            "skillBreakdown": scores_dict.get("skillBreakdown", []),
+            "domainAnalysis": domain_questions,
+            "date": datetime.utcnow().strftime("%d/%m/%Y"),
+        }
+
+        # Push the new result object to the analysis array
         await user_responses.update_one(
-            {
-            "user_id": user_id,
-            "resume_id": resume_id
-            },
-            {"$set": {
-            f"analysis.{domain_name}": {
-                "resume_id": resume_id,
-                "name": user['name'] if user else "",
-                "email": user['email'] if user else "",
-                "overallScore": scores_dict.get("Overall_Score", 0),
-                "technicalSkillsScore": scores_dict.get("Technical_Skills_Score", 0),
-                "problemSolvingScore": scores_dict.get("Problem_Solving_Score", 0),
-                "skillBreakdown": scores_dict.get("skillBreakdown", []),
-                "domainAnalysis": analysis_result,
-                "date": str(datetime.datetime.now()),
-                "time": str(datetime.datetime.now().time())
-            }
-            }}
+            {"user_id": user_id, "resume_id": resume_id},
+            {"$push": {"analysis": result_object}},
+            upsert=True
         )
 
         return JSONResponse({
@@ -377,7 +369,7 @@ async def get_analysis(resume_id: str, domain_name: str, user_id: str = Depends(
         )
     
 @resume_router.get('/get_analysis', status_code=status.HTTP_200_OK)
-async def get_domain_analysis(resume_id: str, domain_name: str, user_id: str = Depends(verify_token)):
+async def get_domain_analysis(section_id: str, resume_id: str, domain_name: str, user_id: str = Depends(verify_token)):
     """
     Get the analysis for a specific domain from the user responses
     """
@@ -390,16 +382,21 @@ async def get_domain_analysis(resume_id: str, domain_name: str, user_id: str = D
         
         if not user_doc or "analysis" not in user_doc:
             raise HTTPException(status_code=404, detail="No analysis found")
-            
-        analysis = user_doc.get("analysis", {})
+
+        analysis_list = user_doc.get("analysis", [])
+
+        # Search for matching section_id and domain_name
+        matched_analysis = next(
+            (item for item in analysis_list if item.get("section_id") == section_id and item.get("domain_name") == domain_name),
+            None
+        )
+
+        if not matched_analysis:
+            raise HTTPException(status_code=404, detail=f"No analysis found for section_id: {section_id} and domain: {domain_name}")
         
-        if domain_name not in analysis:
-            raise HTTPException(status_code=404, detail=f"No analysis found for domain: {domain_name}")
-            
-        # Return the analysis for the specified domain
         return JSONResponse({
             "success": True,
-            "analysis": analysis[domain_name]
+            "analysis": matched_analysis
         })
 
     except Exception as e:
@@ -407,7 +404,6 @@ async def get_domain_analysis(resume_id: str, domain_name: str, user_id: str = D
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving analysis: {str(e)}"
         )
-
 
 @resume_router.get("/InterviewHistory",status_code=status.HTTP_200_OK)
 async def get_interview_history(resume_id: str,user_id: str = Depends(verify_token)):
@@ -427,35 +423,34 @@ async def get_interview_history(resume_id: str,user_id: str = Depends(verify_tok
         history = []
         for doc in user_docs:
             if doc.get('analysis'):
-                for domain_name, domain in doc['analysis'].items():
+                for domain in doc['analysis']:  # now iterating over a list
                     history.append({
-                    'overallScore': domain.get('overallScore', 0),
-                    'date': domain.get('date'),
-                    'time': domain.get('time'),
-                    'domain_name': domain_name,
-                    'detected': domain.get('detected', 'not detected')
+                        'overallScore': domain.get('overallScore', 0),
+                        'date': domain.get('date'),
+                        'time': domain.get('time'),
+                        'domain_name': domain.get('domain_name', 'Unknown'),
+                        'detected': domain.get('detected', 'not detected')
                     })
 
         # Sort by date and time in descending order (latest first)  
-        history.sort(key=lambda x: (x['date'], x['time']), reverse=True)
+        history.sort(key=lambda x: (x['date'], x.get('time', '00:00')), reverse=True)
 
-        print(history)
-
-        if not user_docs:
+        if not history:
             raise HTTPException(status_code=404, detail="No interview history found")
-        
+
         return JSONResponse({
             "success": True,
             "interview_history": history
         })
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving interview history: {str(e)}"
         )
-    
-@resume_router.get("/detected_cheating",status_code=status.HTTP_200_OK)
-async def get_detected_cheating(resume_id: str, domain_name: str, user_id: str = Depends(verify_token)):
+
+@resume_router.get("/detected_cheating", status_code=status.HTTP_200_OK)
+async def get_detected_cheating(section_id: str, resume_id: str, domain_name: str, user_id: str = Depends(verify_token)):
     """
     Get the detected cheating of the user
     """
@@ -464,59 +459,57 @@ async def get_detected_cheating(resume_id: str, domain_name: str, user_id: str =
             "user_id": user_id,
             "resume_id": resume_id,
         })
+
         if not user_doc:
             raise HTTPException(status_code=404, detail="No user document found")
-            
-        print(user_doc.get('analysis', {}))
 
-        if 'analysis' in user_doc:
-            if domain_name in user_doc['analysis']:
-                # Update existing domain with score=0 and current date
-                await user_responses.update_one(
-                    {"user_id": user_id, "resume_id": resume_id},
-                    {"$set": {
-                        f"analysis.{domain_name}.overallScore": 0,
-                        f"analysis.{domain_name}.date": str(datetime.datetime.now()),
-                        f"analysis.{domain_name}.detected": "cheating"
-                    }}
-                )
-            else:
-                # Create new domain analysis with cheating detected
-                await user_responses.update_one(
-                    {"user_id": user_id, "resume_id": resume_id},
-                    {"$set": {
-                    f"analysis.{domain_name}": {
-                        "overallScore": 0,
-                        "date": str(datetime.datetime.now()),
-                        "detected": "cheating"
-                    }
-                    }}
-                )
-        else:
-            # Create new analysis object with domain and cheating detected
+        analysis_list = user_doc.get("analysis", [])
+        match_index = next(
+            (index for index, item in enumerate(analysis_list)
+             if item.get("domain_name") == domain_name and item.get("section_id") == section_id),
+            None
+        )
+
+        now_str = datetime.now().strftime("%d/%m/%Y")
+
+        if match_index is not None:
+            # Update existing object in analysis array
+            update_query = {
+                f"analysis.{match_index}.overallScore": 0,
+                f"analysis.{match_index}.date": now_str,
+                f"analysis.{match_index}.detected": "cheating"
+            }
+
             await user_responses.update_one(
-            {"user_id": user_id, "resume_id": resume_id},
-            {"$set": {
-                "analysis": {
-                domain_name: {
-                    "overallScore": 0,
-                    "date": str(datetime.datetime.now()),
-                    "detected": "cheating"
-                }
-                }
-            }}
+                {"user_id": user_id, "resume_id": resume_id},
+                {"$set": update_query}
+            )
+        else:
+            # Append new object to analysis array
+            new_entry = {
+                "section_id": section_id,
+                "domain_name": domain_name,
+                "overallScore": 0,
+                "date": now_str,
+                "detected": "cheating"
+            }
+
+            await user_responses.update_one(
+                {"user_id": user_id, "resume_id": resume_id},
+                {"$push": {"analysis": new_entry}}
             )
 
         return JSONResponse({
             "success": True,
             "message": "Cheating detected and recorded successfully"
         })
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving detected cheating: {str(e)}"
         )
-    
+        
 @resume_router.get("/get_all_interviews", status_code=status.HTTP_200_OK)
 async def get_all_interviews(user_id: str = Depends(verify_token)):
     """
@@ -528,10 +521,11 @@ async def get_all_interviews(user_id: str = Depends(verify_token)):
         result = []
         for doc in user_docs:
             if 'analysis' in doc and doc.get('resume_id'):
-                for domain_name in doc['analysis'].keys():
+                for domain in doc['analysis']:  # analysis is a list of objects
                     result.append({
                         "resume_id": doc['resume_id'],
-                        "domain_name": domain_name
+                        "domain_name": domain.get("domain_name", "Unknown"),
+                        "section_id": domain.get("section_id", "Unknown"),
                     })
 
         return JSONResponse({
