@@ -9,3 +9,7 @@ class RegisterSchema(BaseModel):
 class LoginSchema(BaseModel):
     email: EmailStr
     password: str
+
+class CompanyLoginSchema(BaseModel):
+    email: EmailStr
+    password: str

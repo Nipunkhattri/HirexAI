@@ -1,9 +1,9 @@
 from fastapi import APIRouter, status, Form, Depends
 from pydantic import EmailStr
 from passlib.context import CryptContext
-from database.mongodb import users_collection
+from database.mongodb import users_collection , Company_collection, user_company_collection
 from bson import ObjectId
-from models.auth import RegisterSchema , LoginSchema
+from models.auth import RegisterSchema , LoginSchema, CompanyLoginSchema
 from fastapi import HTTPException
 from datetime import datetime, timedelta
 from config.setting import settings
@@ -69,3 +69,39 @@ async def get_user_profile(user_id: str = Depends(verify_token)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving user details: {str(e)}"
         )
+
+@auth_router.post("/company-login")
+async def company_login(email: str = Form(), password: str = Form()):
+    user = await Company_collection.find_one({"email": email})
+    if not user:
+        return JSONResponse(status_code=401, content={"message": "Invalid credentials"})
+    
+    saved_password = user.get("password")
+    if password != saved_password:
+        return JSONResponse(status_code=401, content={"message": "Invalid credentials"})
+
+    expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    payload = {
+        "sub": str(user["_id"]),
+        "email": str(email),
+        "exp": expire
+    }
+
+    token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+    return {"access_token": token, "token_type": "bearer"}
+
+@auth_router.post("/company-user-login")
+async def login(login:LoginSchema):
+    user = await user_company_collection.find_one({"email": login.email})
+    if user['password'] != login.password:
+        return JSONResponse(status_code=401, content={"message": "Invalid credentials"})
+
+    expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    payload = {
+        "sub": str(user["_id"]),
+        "email": str(login.email),
+        "exp": expire
+    }
+
+    token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+    return {"access_token": token, "token_type": "bearer"}

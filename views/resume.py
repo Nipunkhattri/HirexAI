@@ -178,9 +178,11 @@ async def submit_answer(
     })
 
     if user_doc and "responses" in user_doc:
+        if not isinstance(user_doc["responses"], list):
+            user_doc["responses"] = [user_doc["responses"]]
+
         updated = False
 
-        # Go through each object in 'responses'
         for obj in user_doc["responses"]:
             if obj.get("id") == answer.section_id:
                 obj["data"].append({
@@ -191,7 +193,6 @@ async def submit_answer(
                 break
 
         if not updated:
-            # If section_id not found, append a new response object
             user_doc["responses"].append({
                 "id": answer.section_id,
                 "domain": answer.DomainName,
@@ -203,7 +204,6 @@ async def submit_answer(
                 ]
             })
 
-        # Save the updated document
         await user_responses.update_one(
             {"_id": user_doc["_id"]},
             {"$set": {"responses": user_doc["responses"]}}
@@ -339,6 +339,7 @@ async def get_analysis(section_id: str, resume_id: str, domain_name: str, user_i
 
         result_object = {
             "section_id": section_id,
+            "resume_id": resume_id,
             "domain_name": domain_name,
             "name": user.get("name", ""),
             "email": user.get("email", ""),
@@ -538,3 +539,4 @@ async def get_all_interviews(user_id: str = Depends(verify_token)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving interviews: {str(e)}"
         )
+
