@@ -7,7 +7,7 @@ async def send_email(to: List[str], subject: str, body: str):
         subject=subject,
         recipients=to,
         body=body,
-        subtype="plain"
+        subtype="html"
     )
     print(conf)
     fm = FastMail(conf)
