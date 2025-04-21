@@ -7,7 +7,7 @@ from models.auth import RegisterSchema , LoginSchema, CompanyLoginSchema
 from fastapi import HTTPException
 from datetime import datetime, timedelta
 from config.setting import settings
-import jwt
+from jose import jwt
 from middleware.middleware import verify_token
 from fastapi.responses import JSONResponse
 

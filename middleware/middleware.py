@@ -1,7 +1,7 @@
 from fastapi import Depends, HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from datetime import datetime, timedelta
-import jwt
+from jose import jwt
 from config.setting import settings
 
 security = HTTPBearer()
