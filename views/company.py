@@ -358,7 +358,8 @@ def interview_helper(interview) -> dict:
         "domain": interview["domain"],
         "interview_date": interview["interview_date"],
         "interview_time": interview["interview_time"],
-        "location": interview["location"]
+        "location": interview["location"],
+        "interview_id": interview["interview_id"],
     }
 
 @company_router.get("/get-interview", status_code=status.HTTP_200_OK)
@@ -379,7 +380,7 @@ async def get_interview_by_ID(interviewID: str, user_id: str = Depends(verify_to
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching interview: {str(e)}")
 
-@company_router.get('/generate-question', status_code=status.HTTP_200_OK)
+@company_router.get('/generate-questions', status_code=status.HTTP_200_OK)
 async def get_interview_questions(interviewID: str, user_id: str = Depends(verify_token)):
     try:
         interview = await interview_collection.find_one({"interview_id": interviewID})
@@ -664,3 +665,19 @@ async def get_all_interviews(company_id: str = Depends(verify_token)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching interviews: {str(e)}")
+    
+@company_router.get('/check-interview-attempt', status_code=status.HTTP_200_OK)
+async def check_interview_attempt(interviewID: str, user_id: str = Depends(verify_token)):
+  try:
+    # Find the test record for this interview
+    test_record = await Users_Test.find_one({"interview_id": interviewID})
+    
+    if test_record and "analysis" in test_record:
+      # Check if user_id exists in analysis
+      if str(user_id) in test_record["analysis"]:
+        return JSONResponse(content={"message": "Already Done Interview"})
+    
+    return JSONResponse(content={"message": "Not done interview"})
+
+  except Exception as e:
+    raise HTTPException(status_code=500, detail=f"Error checking interview attempt: {str(e)}")

@@ -4,7 +4,7 @@ import pymongo
 
 print(settings.MONGODB_URI)
 client = AsyncIOMotorClient(settings.MONGODB_URI)
-db = client['ProQuest']
+db = client['HirexAI']
 users_collection = db['users']
 resume_collection = db['resume']
 user_responses = db['user_responses']

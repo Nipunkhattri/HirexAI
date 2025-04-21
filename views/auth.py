@@ -35,9 +35,9 @@ async def RegisterUser(register:RegisterSchema):
     return {"message": "User registered successfully!"}
 
 @auth_router.post("/login")
-async def login(login:LoginSchema):
-    user = await users_collection.find_one({"email": login.email})
-    if not user or not pwd_context.verify(login.password, user["password"]):
+async def login(email: str = Form(), password: str = Form()):
+    user = await users_collection.find_one({"email": email})
+    if not user or not pwd_context.verify(password, user["password"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
@@ -46,7 +46,7 @@ async def login(login:LoginSchema):
     expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
         "sub": str(user["_id"]),
-        "email": str(login.email),
+        "email": str(email),
         "exp": expire
     }
 
