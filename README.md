@@ -42,6 +42,10 @@ Candidates receive detailed performance reports, while recruiters access insight
 
 ![App Screenshot](screenshots/schedule.png)
 
+![App Screenshot](screenshots/created.png)
+
+![App Screenshot](screenshots/Attempt.png)
+
 ![App Screenshot](screenshots/leaderboard.png)
 
 ![App Screenshot](screenshots/WhattoAttempt.png)
