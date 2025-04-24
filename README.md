@@ -1,27 +1,38 @@
-# AI Interview Platform  
+# HireXAI – Smart AI Interview & Recruitment Platform
 
 ## 🚀 Overview  
-The **AI Interview Platform** is an advanced AI-powered interview system that dynamically generates interview questions based on the user's resume and evaluates responses in real-time. The system integrates **Deepgram's Speech-to-Text (STT) model** to transcribe recorded answers accurately. Additionally, it incorporates **cheating detection** mechanisms, including **multi-face detection, object detection (phone), and eye tracking**, using **CNN and YOLO models** to ensure interview integrity. After completing the interview, users receive a **detailed performance analysis** with insights on **score, question-wise evaluation, cheating detection, and skill-based knowledge assessment** via an interactive dashboard.  
+HireXAI is an AI-powered recruitment platform that automates interview scheduling, question generation, and real-time response evaluation. It uses Deepgram's Speech-to-Text for accurate transcriptions and ensures integrity through multi-face detection, eye tracking, and object detection using YOLO and CNN models.
+
+Candidates receive detailed performance reports, while recruiters access insightful analytics and leaderboards for data-driven hiring decisions. HireXAI streamlines the hiring process with intelligent assessments and robust proctoring.  
 
 ## ✨ Features  
-- 🔐 **User Authentication:** Secure login and resume upload.  
-- 📝 **AI-Powered Interview Generation:** Generates domain-specific interview questions dynamically.  
-- 🎙️ **Live Answer Recording:** Users can record their responses in real-time using Deepgram (STT Model).  
-- 🔍 **Cheating Detection:**  
-  - Multi-face detection  
-  - Object detection (phone)  
-  - Eye tracking using CNN & YOLO  
-- 📊 **Detailed Analysis Dashboard:**  
-  - Interview score  
-  - Question-wise performance  
-  - Cheating detection insights  
-  - Skill-based knowledge evaluation  
+### 🧠 AI-Driven Interview System
+- Resume-based dynamic question generation
+- Real-time answer evaluation using NLP models
+- Accurate speech-to-text transcription with **Deepgram**
+
+### 🔐 Proctoring & Cheating Detection
+- **Multi-Face Detection** – Flags multiple people in frame  
+- **Object Detection** – Detects unauthorized items (e.g., phones)  
+- All proctoring powered by **YOLO** model trained on specific data
+
+### 📊 Candidate Performance Analysis
+- Question-wise scoring and feedback
+- Skill-based knowledge assessment
+- Overall performance breakdown
+
+### 📈 Recruiter Tools
+- Leaderboard to rank candidates
+- Interactive analytics dashboard
+- Real-time interview monitoring
+- Downloadable reports and insights
 
 ## 🏗️ Tech Stack  
 - **Backend:** FastAPI
-- **AI Models:** YOLO, CNN, OpenAI  
-- **Database:** MongoDB  
+- **AI Models:** YOLO, CNN, OpenAI
+- **Database:** MongoDB 
 - **Frontend:** React.js
+- **Deployment** AWS EC2
 
 ## 🔧 Installation  
 
