@@ -34,6 +34,24 @@ Candidates receive detailed performance reports, while recruiters access insight
 - **Frontend:** React.js
 - **Deployment** AWS EC2
 
+## Screenshots
+
+![App Screenshot](screenshots/home.png)
+
+![App Screenshot](screenshots/login.png)
+
+![App Screenshot](screenshots/schedule.png)
+
+![App Screenshot](screenshots/leaderboard.png)
+
+![App Screenshot](screenshots/WhattoAttempt.png)
+
+![App Screenshot](screenshots/multiface.png)
+
+![App Screenshot](screenshots/cheatingdetected.png)
+
+![App Screenshot](screenshots/InterviewAnalysis.png)
+
 ## 🔧 Installation  
 
 ### 1️⃣ Clone the Repository  
